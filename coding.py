@@ -15,6 +15,9 @@ from tensorflow.keras.layers import  Dense, BatchNormalization, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from keras_tuner.tuners import BayesianOptimization
 
+
+
+
 #Load data
 df=pd.read_csv('coding_round_data.csv')
 #Check for missing values in each column
@@ -44,7 +47,9 @@ cat_scores={}
 for name in cat_cols:
     cat_scores[name]=mutual_info_classif(df[name].values.reshape(-1,1),Y,discrete_features=True)[0]
 cat_ordered_by_relevance=sorted(cat_scores.items(),key= lambda x: x[1],reverse=True)
-
+print('Categorical columns ordered by relevance (MI) to target')
+for it in cat_ordered_by_relevance:
+    print(it)
 # Count number of unique values in each categorical column.
 # If more than 100, we need to think if Embedding is better that OneHotEncoding
 to_check=[]
@@ -76,7 +81,7 @@ print('The following pairs of columns are highly correlated')
 print(high_cor_cols)
 
 #There is high correlation between 0 and 1, 2 and 3, 4 and 5, 6 and 7 pairs of columns
-# We keep only 0,2,4 and 7 in feature matrix
+print('Columns %d,%d,%d,%d are dropped from candidate features'%(1,3,5,6))
 
 X=X.drop(['Administrative_Duration',
        'Informational_Duration', 'ProductRelated_Duration','BounceRates'],axis=1)
@@ -107,6 +112,8 @@ for i in range(len(num_cols)):
 X_=X[~mask]
 Y_=Y[~mask]
 
+print('Records that contain outliers in at least one feature are dropped.')
+print('Remaining number of records %d' %len(X_))
 
 corr_num_feat_w_target={}
 for name in num_cols:
@@ -115,9 +122,12 @@ for name in num_cols:
 
 num_ordered_by_relevance=sorted(corr_num_feat_w_target.items(),key= lambda x: abs(x[1]),reverse=True)
 
+print('Numerical features ordered by relevance to Y ')
+for it in num_ordered_by_relevance:
+    print(it)
 
 ###### Part1. Build Logistic Regression model
-
+print('We first build Logistic Regression model')
 
 def train_and_test_LR(x,y,keep_cat,keep_num,do_grid_search=False):
 
@@ -150,13 +160,12 @@ def train_and_test_LR(x,y,keep_cat,keep_num,do_grid_search=False):
 
     if do_grid_search:
 
-        model=LogisticRegression()
-        solver=['saga']
-        penalty=['l1']
-        c_values=[0.01,0.001,0.0005,0.0003,0.0001]
+        model=LogisticRegression(max_iter=300,solver='saga',penalty='l1')
 
+        c_values=[0.01,0.001,0.0005,0.0003,0.0001]
         class_weight=['balanced','none']
-        grid=dict(solver=solver,penalty=penalty,C=c_values, class_weight=class_weight)
+
+        grid=dict(C=c_values, class_weight=class_weight)
 
         cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
         grid_search=GridSearchCV(estimator=model,param_grid=grid, cv=cv, scoring='accuracy',n_jobs=-1)
@@ -184,7 +193,7 @@ def train_and_test_LR(x,y,keep_cat,keep_num,do_grid_search=False):
 
         return info
     else:
-        clf=LogisticRegression(penalty='none',class_weight='balanced',solver='saga',verbose=0,max_iter=100)
+        clf=LogisticRegression(penalty='none',class_weight='balanced',solver='saga',verbose=0,max_iter=300)
         Y_train_pred=cross_val_predict(clf,train_data,Y_train,n_jobs=-1, cv=5,verbose=0)
 
 
@@ -208,7 +217,10 @@ def train_and_test_LR(x,y,keep_cat,keep_num,do_grid_search=False):
 res={}
 res['l1']=train_and_test_LR(X_,Y_,cat_cols,num_cols,do_grid_search=True)
 
-print('LASSO achieves the best accuracy in a model with a single feature "PageValues"')
+print('LR achieves the best validation accuracy %.2f in a model \
+      with a single feature "PageValues"'% (100*res['l1']['best_val_accuracy']))
+print('Test accuracy %.2f in this model :'% (100*res['l1']['test_accuracy']))
+
 
 #Now I try to check this by training LR without penalty on a data with more features added
 # I used ordered (by relevance to Y) lists of features constructed previously
@@ -228,10 +240,12 @@ for i in range(1,3): # I always keep at least 1 num feature
 
 #Inspecting res, I see that model with a single feature 'PageValues' indeed has the best validation accuracy.
 #The next best is model (1,1) with 'PageValues' and 'TrafficType'. Model (1,1) gives the best accuracy on test data
-
+print('LR with two features "PageValues" and "TrafficType" is close in perfornance' )
+print(' Validation accuracy %.2f ' % (100*res[(1,1)]['val_accuracy']))
+print('Test accuracy %.2f ' % (100*res[(1,1)]['test_accuracy']))
 
 #I now try to improve both validation and test accuracy by buiding Neural Network model
-
+print('Now we train Neural Network model')
 
 X_cat=X_[cat_cols]
 X_num=X_[num_cols]
